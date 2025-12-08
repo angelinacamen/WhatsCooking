@@ -1,0 +1,65 @@
+---
+title: "WhatsCooking"
+format: html
+editor: visual
+---
+
+
+```{r}
+library(tidyverse)
+library(jsonlite)
+library(tidytext)
+library(tidymodels)
+library(textrecipes)
+```
+
+
+```{r}
+
+## Read in the data
+```{r}
+trainSet <- read_file("~/Downloads/WhatsCooking/whats-cooking/train.json") %>%
+  fromJSON()
+testSet <- read_file("~/Downloads/WhatsCooking/whats-cooking/test.json") %>%
+  fromJSON()
+
+trainSet <- trainSet %>%
+  unnest(ingredients) %>%
+  mutate(ingredients = str_to_lower(ingredients),
+         ingredients = str_replace_all(ingredients, "[^a-z ]", ""))
+
+testSet <- testSet %>%
+  unnest(ingredients) %>%
+  mutate(ingredients = str_to_lower(ingredients),
+         ingredients = str_replace_all(ingredients, "[^a-z ]", ""))
+
+
+```
+
+## Create recipe
+```{r}
+my_recipe <- recipe(cuisine ~ ., data = trainSet) %>%
+  update_role(id, new_role = "ID") %>%
+  step_mutate(
+    ingredient_count = str_count(ingredients, " ") + 1
+  ) %>%
+  step_tokenize(ingredients) %>%
+  step_stopwords(ingredients) %>%
+
+  # Keep top 1000 tokens
+  step_tokenfilter(ingredients, max_tokens = 1000) %>%
+
+  # TF features
+  step_tf(ingredients) %>%
+  step_tfidf(ingredients) %>%
+
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors()) %>%
+  
+  # Remove zero-variance predictors
+  step_zv(all_predictors())
+
+
+
+```
+
