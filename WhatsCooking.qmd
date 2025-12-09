@@ -17,7 +17,7 @@ library(textrecipes)
 ```{r}
 
 ## Read in the data
-```{r}
+
 trainSet <- read_file("~/Downloads/WhatsCooking/whats-cooking/train.json") %>%
   fromJSON()
 testSet <- read_file("~/Downloads/WhatsCooking/whats-cooking/test.json") %>%
@@ -36,30 +36,71 @@ testSet <- testSet %>%
 
 ```
 
-## Create recipe
+
 ```{r}
-my_recipe <- recipe(cuisine ~ ., data = trainSet) %>%
-  update_role(id, new_role = "ID") %>%
-  step_mutate(
-    ingredient_count = str_count(ingredients, " ") + 1
+
+# ======================================================
+# 1. Load JSON files
+# ======================================================
+trainSet <- read_file("~/Downloads/WhatsCooking/whats-cooking/train.json") %>%
+  fromJSON()
+testSet <- read_file("~/Downloads/WhatsCooking/whats-cooking/test.json") %>%
+  fromJSON()
+
+train_df <- trainSet %>%
+  mutate(
+    ing_text = map_chr(ingredients, ~ paste(tolower(.x), collapse = " "))
   ) %>%
-  step_tokenize(ingredients) %>%
-  step_stopwords(ingredients) %>%
+  select(id, cuisine, ing_text)
 
-  # Keep top 1000 tokens
-  step_tokenfilter(ingredients, max_tokens = 1000) %>%
-
-  # TF features
-  step_tf(ingredients) %>%
-  step_tfidf(ingredients) %>%
-
-  # Normalize numeric predictors
-  step_normalize(all_numeric_predictors()) %>%
-  
-  # Remove zero-variance predictors
-  step_zv(all_predictors())
+test_df <- testSet %>%
+  mutate(
+    ing_text = map_chr(ingredients, ~ paste(tolower(.x), collapse = " "))
+  ) %>%
+  select(id, ing_text)
 
 
+# ======================================================
+# 2. Create recipe for TF–IDF text processing
+# ======================================================
+rec <- recipe(cuisine ~ ing_text, data = train_df) %>%
+  step_tokenize(ing_text) %>%
+  step_stopwords(ing_text) %>%
+  step_tokenfilter(ing_text, max_tokens = 10000) %>%  
+  step_tfidf(ing_text)
+
+
+# ======================================================
+# 3. Model: Multinomial Logistic Regression (glmnet)
+# ======================================================
+model <- multinom_reg(penalty = 0.01, mixture = 1) %>%
+  set_engine("glmnet")
+
+
+# ======================================================
+# 4. Workflow
+# ======================================================
+wf <- workflow() %>%
+  add_recipe(rec) %>%
+  add_model(model)
+
+# Fit full model
+fit <- wf %>% fit(data = train_df)
+
+
+# ======================================================
+# 5. Predict on test set
+# ======================================================
+preds <- predict(fit, new_data = test_df) %>%
+  bind_cols(test_df %>% select(id))
+
+# Format submission (id,cuisine)
+submission <- preds %>%
+  select(id, .pred_class) %>%
+  rename(cuisine = .pred_class)
+
+# Save CSV
+write_csv(submission, "submission.csv")
 
 ```
 
